@@ -29,7 +29,8 @@ oidc:
 
   # Customize the scopes used in the OIDC flow, defaults to "openid", "profile" and "email" and add custom query
   # parameters to the Authorize Endpoint request. Scopes default to "openid", "profile" and "email".
-  scope: ["openid", "profile", "email", "custom"]
+  # Note that offline_access is enabled in order to issue refresh token as well.
+  scope: ["openid", "profile", "email", "custom", "offline_access"]
   # Optional: Passed on to the browser login request – used to tweak behaviour for the OIDC provider
   extra_params:
     domain_hint: example.com
@@ -50,6 +51,10 @@ oidc:
   # If `strip_email_domain` is set to `false` the domain part will NOT be removed resulting to the following
   # user: `first-name.last-name.example.com`
   strip_email_domain: true
+
+  # Set the frequency of background refreshing ID tokens and nodes' expiries using corresponding refresh tokens.
+  # If set to '0', the background refreshing is disabled.
+  force_refresh_period: 1h
 ```
 
 ## Azure AD example

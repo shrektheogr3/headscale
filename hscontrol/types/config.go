@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	defaultOIDCExpiryTime               = 180 * 24 * time.Hour // 180 Days
-	maxDuration           time.Duration = 1<<63 - 1
+	defaultOIDCExpiryTime                       = 180 * 24 * time.Hour // 180 Days
+	defaultOIDCForceRefreshPeriod               = time.Hour
+	maxDuration                   time.Duration = 1<<63 - 1
 )
 
 var errOidcMutuallyExclusive = errors.New(
@@ -164,6 +165,7 @@ type OIDCConfig struct {
 	AllowedGroups              []string
 	Expiry                     time.Duration
 	UseExpiryFromToken         bool
+	ForceRefreshPeriod         time.Duration
 }
 
 type DERPConfig struct {
@@ -868,8 +870,8 @@ func LoadServerConfig() (*Config, error) {
 
 		UnixSocket:           viper.GetString("unix_socket"),
 		UnixSocketPermission: util.GetFileMode("unix_socket_permission"),
-
 		OIDC: OIDCConfig{
+
 			OnlyStartIfOIDCIsAvailable: viper.GetBool(
 				"oidc.only_start_if_oidc_is_available",
 			),
@@ -897,6 +899,21 @@ func LoadServerConfig() (*Config, error) {
 				}
 			}(),
 			UseExpiryFromToken: viper.GetBool("oidc.use_expiry_from_token"),
+			ForceRefreshPeriod: func() time.Duration {
+				// if set to 0, force refreshing is disabled
+				if value := viper.GetString("oidc.force_refresh_period"); value == "0" {
+					return 0
+				} else {
+					period, err := model.ParseDuration(value)
+					if err != nil {
+						log.Warn().Msg("failed to parse oidc.force_refresh_period, defaulting back to 1 hour")
+
+						return defaultOIDCForceRefreshPeriod
+					}
+
+					return time.Duration(period)
+				}
+			}(),
 		},
 
 		LogTail:             logTailConfig,

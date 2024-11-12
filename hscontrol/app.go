@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -257,6 +258,24 @@ func (h *Headscale) expireExpiredNodes(ctx context.Context, every time.Duration)
 
 			if changed {
 				log.Trace().Interface("nodes", update.ChangePatches).Msgf("expiring nodes")
+
+				if ap, ok := h.authProvider.(*AuthProviderOIDC); ok {
+					refreshed, err := ap.refreshIfPossible(ctx, nodesFromPatches(update.ChangePatches))
+					if err != nil {
+						log.Error().
+							Err(err).
+							Uints64("refreshed", nodeIDsAsUint64s(refreshed)).
+							Msg("error refreshing tokens")
+					}
+
+					// consider session alive if we could refresh token successfully
+					// no need to notify other nodes about expiry
+					cps := slices.DeleteFunc(update.ChangePatches, func(p *tailcfg.PeerChange) bool {
+						return slices.Contains(refreshed, types.NodeID(p.NodeID))
+					})
+
+					update.ChangePatches = cps
+				}
 
 				ctx := types.NotifyCtx(context.Background(), "expire-expired", "na")
 				h.nodeNotifier.NotifyAll(ctx, update)
@@ -546,6 +565,13 @@ func (h *Headscale) Serve() error {
 	expireNodeCtx, expireNodeCancel := context.WithCancel(context.Background())
 	defer expireNodeCancel()
 	go h.expireExpiredNodes(expireNodeCtx, updateInterval)
+
+	if ap, ok := h.authProvider.(*AuthProviderOIDC); ok {
+		refreshJobCtx, refreshJobCancel := context.WithCancel(context.Background())
+		defer refreshJobCancel()
+
+		go ap.refreshJob(refreshJobCtx)
+	}
 
 	if zl.GlobalLevel() == zl.TraceLevel {
 		zerolog.RespLog = true
@@ -1063,4 +1089,21 @@ func (h *Headscale) loadACLPolicy() error {
 	h.ACLPolicy = pol
 
 	return nil
+}
+
+func nodesFromPatches(cps []*tailcfg.PeerChange) []types.NodeID {
+	ids := make([]types.NodeID, 0, len(cps))
+	for _, cp := range cps {
+		ids = append(ids, types.NodeID(cp.NodeID))
+	}
+
+	return ids
+}
+
+func nodeIDsAsUint64s(ids []types.NodeID) []uint64 {
+	res := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		res = append(res, id.Uint64())
+	}
+	return res
 }
