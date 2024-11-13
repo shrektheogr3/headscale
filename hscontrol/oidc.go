@@ -34,6 +34,7 @@ const (
 	// errCodeInvalidGrant represents an error code which should be returned by OIDC provider
 	// when refresh token is expired/revoked/invalid according to RFC6749.
 	errCodeInvalidGrant = "invalid_grant"
+	scopeOfflineAccess  = "offline_access"
 )
 
 var (
@@ -542,13 +543,16 @@ func renderOIDCCallbackTemplate(
 	return &content, nil
 }
 
-// refreshIfPossible checks if the node was authenticated via oidc and tries to refresh its token.
-// If token was refreshed successfully, the node is represented in returned slice.
-// It's possible that len(refreshed) > 0 && err != nil.
+// refreshIfPossible tries to refresh node's expiry via refresh token if it's possible.
+// If node was refreshed successfully, the node is represented in returned slice.
 func (a *AuthProviderOIDC) refreshIfPossible(
 	ctx context.Context,
 	nodes []types.NodeID,
 ) (refreshed []types.NodeID, err error) {
+	if !a.refreshTokensEnabled() {
+		return
+	}
+
 	tokens, err := a.db.GetRefreshTokens(nodes...)
 	if err != nil {
 		return nil, fmt.Errorf("can't get refresh tokens: %w", err)
@@ -572,9 +576,20 @@ func (a *AuthProviderOIDC) refreshIfPossible(
 	return refreshed, nil
 }
 
+// refreshJob periodically tries to refresh nodes using their refresh tokens.
+// If the refresh token is revoked by OIDC provider or expired,
+// a node is considered to be expired as well.
+//
+// This job is useful in cases when idToken is long-living
+// and we want to be able to revoke specific node's session.
 func (a *AuthProviderOIDC) refreshJob(ctx context.Context) {
 	rp := a.cfg.ForceRefreshPeriod
 	if rp == 0 {
+		return
+	}
+
+	if !a.refreshTokensEnabled() {
+		log.Warn().Msg("refresh tokens are not enabled, refreshJob is skipped")
 		return
 	}
 
@@ -640,6 +655,8 @@ func (a *AuthProviderOIDC) refreshNode(ctx context.Context, rt *types.RefreshTok
 		return
 	}
 
+	log.Debug().Str("old_token", rt.Token).Str("new_token", refreshToken).Msg("rotating tokens")
+
 	rt.Token = refreshToken
 	if _, err := a.db.SaveRefreshToken(rt); err != nil {
 		// still return determined expiry, because we were able to refresh session
@@ -679,4 +696,8 @@ func shouldDeleteRefreshToken(err error) bool {
 	// refresh token seems to be revoked or expired
 	// consider session as finished
 	return re.ErrorCode == errCodeInvalidGrant
+}
+
+func (a *AuthProviderOIDC) refreshTokensEnabled() bool {
+	return slices.Contains(a.cfg.Scope, scopeOfflineAccess)
 }

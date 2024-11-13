@@ -24,9 +24,8 @@ import (
 )
 
 const (
-	defaultOIDCExpiryTime                       = 180 * 24 * time.Hour // 180 Days
-	defaultOIDCForceRefreshPeriod               = time.Hour
-	maxDuration                   time.Duration = 1<<63 - 1
+	defaultOIDCExpiryTime               = 180 * 24 * time.Hour // 180 Days
+	maxDuration           time.Duration = 1<<63 - 1
 )
 
 var errOidcMutuallyExclusive = errors.New(
@@ -908,7 +907,7 @@ func LoadServerConfig() (*Config, error) {
 					if err != nil {
 						log.Warn().Msg("failed to parse oidc.force_refresh_period, defaulting back to 1 hour")
 
-						return defaultOIDCForceRefreshPeriod
+						return 0
 					}
 
 					return time.Duration(period)
