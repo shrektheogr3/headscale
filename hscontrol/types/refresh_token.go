@@ -7,5 +7,4 @@ type RefreshToken struct {
 
 	Token  string
 	NodeID NodeID
-	Node   Node
 }
